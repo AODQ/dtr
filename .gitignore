@@ -1,0 +1,17 @@
+.dub
+docs.json
+__dummy.html
+docs/
+damntinyrasterizer.so
+damntinyrasterizer.dylib
+damntinyrasterizer.dll
+damntinyrasterizer.a
+damntinyrasterizer.lib
+damntinyrasterizer-test-*
+dub.selections.json
+*.exe
+*.o
+*.obj
+*.lst
+*.out
+*.png
