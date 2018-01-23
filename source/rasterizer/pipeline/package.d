@@ -9,11 +9,12 @@ import brdf : Material;
 
 Duration vertex_shader_time,
          fragment_shader_time;
+int vertices_rendered;
 
 // Input assember
 
 enum VertexType {Model, UVCoordinates}
-enum RenderType { Wireframe, Rasterize, Depth };
+enum RenderType { Wireframe, Fragment, Depth };
 
 immutable size_t VertexType_max = VertexType.max+1;
 
@@ -86,7 +87,7 @@ public:
       case RenderType.Wireframe:
         Wireframe_Shader(out_buff);
       break;
-      case RenderType.Rasterize:
+      case RenderType.Fragment:
         Rasterize_Shader(out_buff);
       break;
       case RenderType.Depth    :
@@ -110,14 +111,17 @@ public:
         coord = (Matrix*float4(coord, 1.0f)).xyz;
         result.varying_tri[face] = coord;
       }
+    }
+    foreach ( it, ref result; parallel(vary_buf) ) {
       result.bbox = camera.bbox.Triangle(result.varying_tri);
     }
 
     import stl : filter, array;
     vary_buf = vary_buf.filter!(n =>
-      !(n.bbox.bmin.x < 0.0f || n.bbox.bmin.y <= 0.0f ||
-      n.bbox.bmax.x > camera.image_dim.x || n.bbox.bmax.y > camera.image_dim.y)
+      n.bbox.bmin.x != camera.image_dim.x && n.bbox.bmax.x != 0 &&
+      n.bbox.bmin.y != camera.image_dim.y && n.bbox.bmax.y != 0
     ).array();
+    vertices_rendered = cast(int)vary_buf.length;
     sw.stop();
     vertex_shader_time = sw.peek();
   }
@@ -165,8 +169,6 @@ public:
 
     foreach ( it, ref result; parallel(vary_buf) ) {
       immutable bbox = result.bbox;
-      // if ( bbox.bmin.x < 0.0f  || bbox.bmin.y < 0.0f ||
-      //      bbox.bmax.x > dim.x || bbox.bmax.y > dim.y ) goto NOLOOP;
       foreach ( p_x; iota(cast(int)bbox.bmin.x-1, cast(int)bbox.bmax.x+1))
       foreach ( p_y; iota(cast(int)bbox.bmin.y-1, cast(int)bbox.bmax.y+1)) {
         float2 pixel = float2(p_x, p_y);
@@ -178,7 +180,9 @@ public:
             size_t z_idx = RZ_Idx(pixel, out_buf.RWidth);
             if ( z_buf[z_idx] >= z ) continue;
             z_buf[z_idx] = z;
-            out_buf.Apply(To_Int2(pixel.xy), float4(float3(z), 1.0f));
+            float3 col = float3(pixel.x/dim.x, 0.5f, pixel.y/dim.y);
+            z = Clamp(z+1.0f, 0.0f, 2.0f)/2.0f;
+            out_buf.Apply(To_Int2(pixel.xy), float4(col*z, 1.0f));
           }
         }
       }
@@ -243,7 +247,7 @@ size_t RZ_Idx(T, U)(T pixel, U width)
 float[] Construct_Z_Buffer ( float2 img_dim ) {
   float[] z_buffer;
   z_buffer.length = cast(int)(img_dim.x*img_dim.y);
-  foreach ( ref z; z_buffer ) z = 0.0f;
+  foreach ( ref z; z_buffer ) z = -1000.0f;
   return z_buffer;
 }
 

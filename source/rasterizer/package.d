@@ -17,11 +17,12 @@ float zoom    = 1.0f;
 bool animate  = true;
 float3 pan_eye = float3(0.0f);
 float3 rotational_eye = float3(0.0f);
+RenderType render_type = RenderType.Depth;
 
 void Initialize ( string[] args = [] ) {
   int2 dim = int2(640, 480);
   gl_buffer = new GLBuffer(dim.x, dim.y);
-  auto wavefront_obj = new WavefrontObj("african.obj");
+  auto wavefront_obj = new WavefrontObj(args[0]);
 
   camera = new Camera(float2(dim));
   camera.eye    = float3(0.0f,  2.0f, 3.0f);
@@ -37,7 +38,7 @@ void Initialize ( string[] args = [] ) {
   model_dimensions = wavefront_obj.bbox.bmax - wavefront_obj.bbox.bmin;
   model_diameter   = max(model_dimensions.x, max(model_dimensions.y,
                          model_dimensions.z));
-  pan_eye.y = -model_diameter*0.25f;
+  pan_eye.y = -0.5f;
   delete wavefront_obj;
 }
 
@@ -57,6 +58,6 @@ void Render ( ) {
                  camera.model.rotateZ(rotational_eye.z);
 
   gl_buffer.Clear(float4(0.0f, 0.0f, 0.0f, 0.0f));
-  drast.Render(gl_buffer, RenderType.Wireframe);
+  drast.Render(gl_buffer, render_type);
   gl_buffer.Render();
 }

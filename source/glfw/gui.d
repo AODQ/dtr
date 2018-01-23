@@ -86,7 +86,6 @@ struct GUI {
         if ( gui_active ) {
           mouse.on_left = mouse.on_middle = mouse.on_right = false;
           mouse.motion_x = mouse.motion_y = 0.0f;
-          writeln("activated");
         }
         displayArea1(scrollAreaWidth, scrollAreaHeight);
 
@@ -113,14 +112,15 @@ struct GUI {
         frame_count = 0;
       }
       import rasterizer.pipeline : vertex_shader_time, fragment_shader_time,
-                                   DamnRasterizer;
+                                   DamnRasterizer, vertices_rendered;
       imguiLabel("Framerate: " ~ fps_str.to!string);
       imguiLabel("Vertex Shader: %s".format(vertex_shader_time));
       imguiLabel("Fragment Shader: %s".format(fragment_shader_time));
       imguiLabel("Total: %s".format(vertex_shader_time+fragment_shader_time));
+      imguiLabel("Vertices: %s".format(vertices_rendered));
 
       import rasterizer : zoom, pan_eye, rotational_eye, animate,
-                          model_dimensions;
+                          model_dimensions, render_type;
       static bool animatal = true;
       if ( imguiCheck("animatal", &animatal) ) {
         rotational_eye.z = 0.0f;
@@ -146,22 +146,19 @@ struct GUI {
       imguiSlider("Zoom", &zoom, 0.1f, 10.0f, delta);
 
       // handle mouse
-      if ( !animatal ) {
-        if ( mouse.right ) {
-          rotational_eye.y += mouse.motion_x*0.1f*(1.0f/zoom);
-          rotational_eye.x += mouse.motion_y*0.1f*(1.0f/zoom);
-        }
-        if ( mouse.left ) {
-          float aspect_ratio = cast(float)(window_width)/window_height;
-          aspect_ratio.writeln;
-          pan_eye.x += mouse.motion_x* 0.005f*aspect_ratio;
-          pan_eye.y += mouse.motion_y*-0.005f;
-        }
-        if ( mouse.middle ) {
-          import std.math : fmax;
-          zoom += mouse.motion_x*0.01f;
-          zoom = fmax(0.001f, zoom);
-        }
+      if ( mouse.right ) {
+        rotational_eye.y += mouse.motion_x*0.002f*(1.0f/zoom);
+        rotational_eye.x += mouse.motion_y*0.002f*(1.0f/zoom);
+      }
+      if ( mouse.left ) {
+        float aspect_ratio = cast(float)(window_width)/window_height;
+        pan_eye.x += mouse.motion_x* 0.005f*aspect_ratio;
+        pan_eye.y += mouse.motion_y*-0.005f;
+      }
+      if ( mouse.middle ) {
+        import std.math : fmax;
+        zoom += mouse.motion_x*0.01f;
+        zoom = fmax(0.001f, zoom);
       }
        imguiSlider("Lo.x", &DamnRasterizer.Lo.x, -500.0f, 500.0f, 0.001f);
        imguiSlider("Lo.y", &DamnRasterizer.Lo.y, -500.0f, 500.0f, 0.001f);
@@ -169,6 +166,26 @@ struct GUI {
 
       imguiSeparatorLine();
       imguiSeparator();
+
+      static bool render_type_wireframe,
+                  render_type_depth = true,
+                  render_type_fragment;
+      void Render_Button ( string name, bool* rtype ) {
+        if ( imguiCollapse(name, "", rtype, (!*rtype).Bool_Enable) ) {
+          render_type_wireframe = render_type_depth = render_type_fragment
+            = false;
+          (*rtype) = true;
+        }
+      }
+
+      Render_Button("Wireframe", &render_type_wireframe);
+      Render_Button("Depth",     &render_type_depth);
+      Render_Button("Fragment",  &render_type_fragment);
+
+      import rasterizer.pipeline : RenderType;
+      if ( render_type_wireframe ) render_type = RenderType.Wireframe;
+      if ( render_type_depth     ) render_type = RenderType.Depth;
+      if ( render_type_fragment  ) render_type = RenderType.Fragment;
 
       float rough=0.0f;
       imguiSlider("roughness",   &DamnRasterizer._mat.roughness,   0.0f, 1.0f, 0.001f);
