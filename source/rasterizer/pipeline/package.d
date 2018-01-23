@@ -6,6 +6,7 @@ import buffer : OutBuffer;
 import std.datetime.stopwatch : StopWatch, AutoStart;
 import std.datetime : Duration;
 import brdf : Material;
+import rasterizer.pipeline.texture;
 
 Duration vertex_shader_time,
          fragment_shader_time;
@@ -13,8 +14,9 @@ int vertices_rendered;
 
 // Input assember
 
-enum VertexType {Model, UVCoordinates}
+enum VertexType {Model, UVCoordinates};
 enum RenderType { Wireframe, Fragment, Depth };
+enum TextureType { Diffuse, Normal };
 
 immutable size_t VertexType_max = VertexType.max+1;
 
@@ -47,7 +49,7 @@ class DamnRasterizer {
   };
   static float3 Lo = float3(1.1f, -0.5f, 5.0f);
   Camera camera;
-  imf.IFImage normal_map;
+  Texture diffuse_texture;
 private:
   struct VaryingBuffer {
     float3[3] varying_tri;
@@ -60,13 +62,19 @@ private:
     import stl : max, min;
     float2 uv = Matrix_Mul(vb.varying_uv, bary).xy;
     float3 ori = Matrix_Mul(vb.varying_tri, bary);
-    float3 N = Load_PNG(normal_map, uv).xyz;
-    float3 tlo = Lo;
-    float3 wo = Normalize(tlo - ori),
-           wi = Normalize(ori - eye);
-    import brdf;
+    float3 N = cross(vb.varying_tri[2] - vb.varying_tri[0],
+                     vb.varying_tri[1] - vb.varying_tri[0]);
+    float3 diff = float3(0.5f);
+    if ( diffuse_texture !is null ) {
+      diff = diffuse_texture.Read(uv).xyz;
+    }
+    return diff;
+    // float3 tlo = Lo;
+    // float3 wo = Normalize(tlo - ori),
+           // wi = Normalize(ori - eye);
+    // import brdf;
     // float3 col = BRDF_F ( wi, N, wo, _mat, float3(0.8f));
-    return min(1.0f, max(0.0f, dot(wo, N)))*float3(0.68f, 0.57f, 0.689f);
+    // return min(1.0f, max(0.0f, dot(wo, N)))*float3(0.68f, 0.57f, 0.689f);
   }
 
   VertexBufferObject vbo;
@@ -74,10 +82,13 @@ private:
 public:
   this ( Camera _camera ) {
     camera = _camera;
-    normal_map = imf.read_image("african_normal.png");
   }
   void Push_Vertex_Buffer ( VertexType type, VertexBuffer _vbo ) {
     vbo.buffers[type] = _vbo;
+  }
+
+  void Set_Texture ( TextureType texture_type, string filename ) {
+    diffuse_texture = new Texture(filename);
   }
 
   void Render ( OutBuffer out_buff, RenderType type ) {
@@ -88,10 +99,10 @@ public:
         Wireframe_Shader(out_buff);
       break;
       case RenderType.Fragment:
-        Rasterize_Shader(out_buff);
+        Rasterize_Shader!(RenderType.Fragment)(out_buff);
       break;
       case RenderType.Depth    :
-        Depth_Shader(out_buff);
+        Rasterize_Shader!(RenderType.Depth)(out_buff);
       break;
     }
   }
@@ -107,9 +118,12 @@ public:
     foreach ( it, ref result; parallel(vary_buf) ) {
       int3 model_elem =  VBO.buffers[0].elements[it];
       foreach ( face; 0 .. 3 ) {
-        float3 coord = VBO.buffers[0].coordinates[model_elem[face]];
-        coord = (Matrix*float4(coord, 1.0f)).xyz;
-        result.varying_tri[face] = coord;
+        auto element = model_elem[face];
+        float3 coord = VBO.buffers[0].coordinates[element];
+        if ( diffuse_texture ) { // TODO better if statement check
+          result.varying_uv[face] = VBO.buffers[1].coordinates[element];
+        }
+        result.varying_tri [face] = (Matrix*float4(coord, 1.0f)).xyz;
       }
     }
     foreach ( it, ref result; parallel(vary_buf) ) {
@@ -126,7 +140,7 @@ public:
     vertex_shader_time = sw.peek();
   }
 
-  void Rasterize_Shader(OutBuffer out_buf) {
+  void Rasterize_Shader(RenderType CRType)(OutBuffer out_buf) {
     import std.parallelism, stl;
     auto sw = StopWatch(AutoStart.yes);
     immutable Matrix = camera.viewport*camera.projection*camera.model;
@@ -137,8 +151,6 @@ public:
 
     foreach ( it, ref result; parallel(vary_buf) ) {
       immutable bbox = result.bbox;
-      // if ( bbox.bmin.x < 0.0f  || bbox.bmin.y < 0.0f ||
-      //      bbox.bmax.x > dim.x || bbox.bmax.y > dim.y ) goto NOLOOP;
       foreach ( p_x; iota(cast(int)bbox.bmin.x-1, cast(int)bbox.bmax.x+1))
       foreach ( p_y; iota(cast(int)bbox.bmin.y-1, cast(int)bbox.bmax.y+1)) {
         float2 pixel = float2(p_x, p_y);
@@ -150,7 +162,13 @@ public:
             size_t z_idx = RZ_Idx(pixel, out_buf.RWidth);
             if ( z_buf[z_idx] >= z ) continue;
             z_buf[z_idx] = z;
-            float3 col = Fragment_Shader(result, eye, bary);
+            float3 col;
+            static if ( CRType == RenderType.Depth ) {
+              col = float3(pixel.x/dim.x, 0.5f, pixel.y/dim.y)*
+                    Clamp(z+1.0f, 0.0f, 2.0f)/2.0f;
+            } else static if ( CRType == RenderType.Fragment ) {
+              col = Fragment_Shader(result, eye, bary);
+            }
             out_buf.Apply(To_Int2(pixel.xy), float4(col, 1.0f));
           }
         }
@@ -160,37 +178,7 @@ public:
     sw.stop();
     fragment_shader_time = sw.peek();
   }
-  void Depth_Shader(OutBuffer out_buf) {
-    import std.parallelism, stl;
-    auto sw = StopWatch(AutoStart.yes);
 
-    immutable dim = camera.image_dim;
-    float[] z_buf = Construct_Z_Buffer(camera.image_dim);
-
-    foreach ( it, ref result; parallel(vary_buf) ) {
-      immutable bbox = result.bbox;
-      foreach ( p_x; iota(cast(int)bbox.bmin.x-1, cast(int)bbox.bmax.x+1))
-      foreach ( p_y; iota(cast(int)bbox.bmin.y-1, cast(int)bbox.bmax.y+1)) {
-        float2 pixel = float2(p_x, p_y);
-        if ( camera.Valid_Pixel(pixel) ) {
-          float3 bary = Barycentric(result.varying_tri, float3(pixel, 0.0f));
-          if ( bary.x >= 0.0f && bary.y >= 0.0f && bary.z >= 0.0f ) {
-            float z = iota(0, 3).map!(i => result.varying_tri[i].z*bary[i])
-                                .reduce!((x, y) => x+y);
-            size_t z_idx = RZ_Idx(pixel, out_buf.RWidth);
-            if ( z_buf[z_idx] >= z ) continue;
-            z_buf[z_idx] = z;
-            float3 col = float3(pixel.x/dim.x, 0.5f, pixel.y/dim.y);
-            z = Clamp(z+1.0f, 0.0f, 2.0f)/2.0f;
-            out_buf.Apply(To_Int2(pixel.xy), float4(col*z, 1.0f));
-          }
-        }
-      }
-    }
-
-    sw.stop();
-    fragment_shader_time = sw.peek();
-  }
   void Wireframe_Shader(OutBuffer buf) {
     import std.parallelism;
     immutable dim = To_Int2(camera.image_dim.x, camera.image_dim.y);

@@ -35,6 +35,13 @@ void Initialize ( string[] args = [] ) {
   drast.Push_Vertex_Buffer(VertexType.Model,
                   VertexBuffer(wavefront_obj.vertices,
                                wavefront_obj.faces));
+  if ( wavefront_obj.has_uv ) {
+    drast.Push_Vertex_Buffer(VertexType.UVCoordinates,
+                  VertexBuffer(wavefront_obj.uv_coords,
+                               wavefront_obj.uv_faces));
+  }
+  if ( wavefront_obj.diffuse_texture != "" )
+    drast.Set_Texture(TextureType.Diffuse, wavefront_obj.diffuse_texture);
   model_dimensions = wavefront_obj.bbox.bmax - wavefront_obj.bbox.bmin;
   model_diameter   = max(model_dimensions.x, max(model_dimensions.y,
                          model_dimensions.z));

@@ -168,8 +168,8 @@ struct GUI {
       imguiSeparator();
 
       static bool render_type_wireframe,
-                  render_type_depth = true,
-                  render_type_fragment;
+                  render_type_depth,
+                  render_type_fragment = true;
       void Render_Button ( string name, bool* rtype ) {
         if ( imguiCollapse(name, "", rtype, (!*rtype).Bool_Enable) ) {
           render_type_wireframe = render_type_depth = render_type_fragment
