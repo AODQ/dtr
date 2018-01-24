@@ -35,7 +35,7 @@ float3 BRDF_F ( float3 wi, float3 N, float3 wo, Material m, float3 col ) {
   // get binormal, bitangent, half vec etc
   const float3 binormal  = Binormal(N),
                bitangent = cross(binormal, N),
-               L         =  wo, V = -wi,
+               L         = wo, V = wi,
                H         = Normalize(L+V);
   const float  cos_NV    = dot(N, V), cos_NL     = dot(N, L),
                cos_HV    = Clamp(dot(H, V)),
@@ -43,14 +43,12 @@ float3 BRDF_F ( float3 wi, float3 N, float3 wo, Material m, float3 col ) {
                Fresnel_L = Schlick_Fresnel(cos_NL),
                Fresnel_V = Schlick_Fresnel(cos_NV);
   // Diffusive component
-  float3 diffusive_albedo = col*IPI;
+  float3 diffusive_albedo = col;
 
   float3 microfacet = float3(1.0f);
 
-
-  // probably transmittive
-  if ( cos_NL <= 0.0f || cos_NV <= 0.0f ) {
-    return float3(0.0f);
+  if ( cos_NL <= 0.0f ) {
+    return float3(0.0f, 0.0f, 0.0f);
   }
 
   { // ------- Fresnel
@@ -74,6 +72,7 @@ float3 BRDF_F ( float3 wi, float3 N, float3 wo, Material m, float3 col ) {
     float G = 0.5f / (GGX_NV*Ax + GGX_HL*Ay);
     microfacet *= Clamp(G);
   }
+
   { // ------- Distribution
     // Hyper-Cauchy Distribution using roughness and metallic
     const float Param = 1.2f + m.anisotropic,
@@ -86,8 +85,8 @@ float3 BRDF_F ( float3 wi, float3 N, float3 wo, Material m, float3 col ) {
     microfacet *= Clamp(D);
   }
 
-  // Since microfacet is described using half vec, the following energy
-  // conservation model may be used [Edwards et al. 2006]
+  // // Since microfacet is described using half vec, the following energy
+  // // conservation model may be used [Edwards et al. 2006]
   microfacet /= 4.00f * cos_HV * fmax(cos_NL, cos_NV);
 
   { // --------- Subsurface
@@ -101,7 +100,9 @@ float3 BRDF_F ( float3 wi, float3 N, float3 wo, Material m, float3 col ) {
     diffusive_albedo = Mix(diffusive_albedo, Pow(Retro_reflection, float3(0.5f)),
                            m.subsurface*0.5f);
   }
+  return Clamp(diffusive_albedo+microfacet);
 
-  float3 result = Clamp((diffusive_albedo + microfacet));
-  return result;
+  // return microfacet;
+  // // float3 result = Clamp((diffusive_albedo + microfacet));
+  // // return result;
 }

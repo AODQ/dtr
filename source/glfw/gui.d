@@ -160,9 +160,10 @@ struct GUI {
         zoom += mouse.motion_x*0.01f;
         zoom = fmax(0.001f, zoom);
       }
-       imguiSlider("Lo.x", &DamnRasterizer.Lo.x, -500.0f, 500.0f, 0.001f);
-       imguiSlider("Lo.y", &DamnRasterizer.Lo.y, -500.0f, 500.0f, 0.001f);
-       imguiSlider("Lo.z", &DamnRasterizer.Lo.z, -10.0f, 10.0f, 0.01f);
+      auto dim = model_dimensions;
+       imguiSlider("Lo.x", &DamnRasterizer.Lo.x, -dim.x*20.0f, dim.x*20.0f, 0.001f);
+       imguiSlider("Lo.y", &DamnRasterizer.Lo.y, -dim.y*20.0f, dim.y*20.0f, 0.001f);
+       imguiSlider("Lo.z", &DamnRasterizer.Lo.z, -dim.z*20.0f, dim.z*20.0f, 0.001f);
 
       imguiSeparatorLine();
       imguiSeparator();
@@ -182,7 +183,7 @@ struct GUI {
       Render_Button("Depth",     &render_type_depth);
       Render_Button("Fragment",  &render_type_fragment);
 
-      import rasterizer.pipeline : RenderType;
+      import rasterizer.pipeline : RenderType, TextureType;
       if ( render_type_wireframe ) render_type = RenderType.Wireframe;
       if ( render_type_depth     ) render_type = RenderType.Depth;
       if ( render_type_fragment  ) render_type = RenderType.Fragment;
@@ -193,6 +194,12 @@ struct GUI {
       imguiSlider("fresnel",     &DamnRasterizer._mat.fresnel,     0.0f, 1.0f, 0.001f);
       imguiSlider("subsurface",  &DamnRasterizer._mat.subsurface,  0.0f, 1.0f, 0.001f);
       imguiSlider("anisotropic", &DamnRasterizer._mat.anisotropic, 0.0f, 1.0f, 0.001f);
+
+      imguiSeparator();
+
+      static import settings;
+      imguiCheck("Diffuse texture", &settings.render_textures[TextureType.Diffuse]);
+      imguiCheck("Normal  texture", &settings.render_textures[TextureType.Normal]);
 
       imguiEndScrollArea();
     }

@@ -14,6 +14,9 @@ alias ubyte4 = vec4ub;
 
 int2 To_Int2 ( float x, float y ) { return int2(cast(int )x, cast(int )y ); }
 int2 To_Int2 ( float2 p         ) { return To_Int2(p.x, p.y); }
+int3 To_Int3(T)(T x) {
+  return int3(cast(int)x[0], cast(int)x[1], cast(int)x[2]);
+}
 
 T Normalize(T) ( T vec ) {
   vec.normalize;

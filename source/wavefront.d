@@ -1,5 +1,8 @@
 module wavefront;
 import vector;
+import std.stdio : writeln;
+import std.exception : enforce;
+import rasterizer.pipeline : TextureType, TextureType_max;
 
 float3 To_Float3 ( string[] args ) {
   import std.conv : to;
@@ -17,8 +20,25 @@ class WavefrontObj {
   int3[] uv_faces;
 
   bool has_uv = false;
-  string diffuse_texture;
+  string[TextureType_max] textures;
   BoundingBox bbox;
+
+  void Check_Valid ( ) {
+    bool Is_Clamped(int3 face, size_t len) {
+      return (face.x >= 0 && face.x < len &&
+              face.y >= 0 && face.y < len &&
+              face.z >= 0 && face.z < len );
+    }
+    void Clamp_Check ( ref int3[] arr, string label ) {
+      import std.string : format;
+      foreach ( f; arr )
+        enforce(Is_Clamped(f, arr.length),
+            "Face %s out of range of %s length %s"
+            .format(f, label, arr.length));
+    }
+    Clamp_Check(faces, "geometry vertex");
+    Clamp_Check(uv_faces, "UV vertex");
+  }
 
   private void Apply_Line ( string line ) {
     import stl;
@@ -29,7 +49,11 @@ class WavefrontObj {
       default: break;
       case "dtr_diffuse":
         has_uv = true;
-        diffuse_texture = data[1];
+        textures[TextureType.Diffuse] = data[1];
+      break;
+      case "dtr_normal":
+        has_uv = true;
+        textures[TextureType.Normal] = data[1];
       break;
       case "v":
         auto vert = data[1..4].To_Float3;
@@ -63,7 +87,11 @@ class WavefrontObj {
     import stl;
     bbox.bmin = float3( 1000.0f);
     bbox.bmax = float3(-1000.0f);
+    writeln("Constructing wavefront object ", fname);
     File(fname).byLine.each!(n => Apply_Line(n.to!string));
+    writeln("Checking validity of model");
+    Check_Valid();
+    writeln("Successfully loaded ", fname);
   }
 }
 
@@ -83,6 +111,6 @@ private auto Extrapolate_Region ( string param, size_t vert_len ) {
 }
 
 private auto RObj_Face_Index ( int t, size_t len ) {
-  assert(t != 0, "Invalid face value of 0");
+  assert(t > 0, "Invalid face value of 0");
   return t < 0 ? cast(int)(len) + t : t-1;
 }

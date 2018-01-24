@@ -5,8 +5,9 @@ import vector;
 import buffer : OutBuffer;
 import std.datetime.stopwatch : StopWatch, AutoStart;
 import std.datetime : Duration;
-import brdf : Material;
+import brdf : BRDF_F, Material;
 import rasterizer.pipeline.texture;
+static import settings;
 
 Duration vertex_shader_time,
          fragment_shader_time;
@@ -19,6 +20,7 @@ enum RenderType { Wireframe, Fragment, Depth };
 enum TextureType { Diffuse, Normal };
 
 immutable size_t VertexType_max = VertexType.max+1;
+immutable size_t TextureType_max = VertexType.max+1;
 
 struct VertexBuffer {
   float3[] coordinates;
@@ -47,34 +49,45 @@ class DamnRasterizer {
     roughness:0.5f, metallic:0.5f, fresnel:0.5f, subsurface:0.5f,
     anisotropic:0.5f
   };
-  static float3 Lo = float3(1.1f, -0.5f, 5.0f);
+  static float3 Lo = float3(-0.27f, -0.43f, -0.19f);
   Camera camera;
-  Texture diffuse_texture;
+  Texture[TextureType_max] textures;
+  bool has_uv;
 private:
+
+  struct UniformBuffer {
+    float4x4 Matrix, MatrixInverse;
+  }
+
   struct VaryingBuffer {
+    float3[3] world_tri;
     float3[3] varying_tri;
     float3[3] varying_uv;
     BoundingBox bbox;
   }
 
 
-  float3 Fragment_Shader ( inout ref VaryingBuffer vb, float3 eye, float3 bary){
-    import stl : max, min;
+  float3 Fragment_Shader ( inout ref UniformBuffer ub,
+                           inout ref VaryingBuffer vb, float3 eye, float3 bary){
+    import stl : max, min, fabs;
     float2 uv = Matrix_Mul(vb.varying_uv, bary).xy;
-    float3 ori = Matrix_Mul(vb.varying_tri, bary);
-    float3 N = cross(vb.varying_tri[2] - vb.varying_tri[0],
-                     vb.varying_tri[1] - vb.varying_tri[0]);
+    float3 ori = Matrix_Mul(vb.world_tri, bary);
+    float3 N;
+    if ( settings.render_textures[TextureType.Normal] &&
+         textures[TextureType.Normal] !is null ) {
+      N = textures[TextureType.Normal].Read(uv).xyz;
+    } else
+      N = cross(vb.world_tri[2] - vb.world_tri[0],
+                vb.world_tri[1] - vb.world_tri[0]).Normalize;
     float3 diff = float3(0.5f);
-    if ( diffuse_texture !is null ) {
-      diff = diffuse_texture.Read(uv).xyz;
+    if ( settings.render_textures[TextureType.Diffuse] &&
+         textures[TextureType.Diffuse] !is null ) {
+      diff = textures[TextureType.Diffuse].Read(uv).xyz;
     }
-    return diff;
-    // float3 tlo = Lo;
-    // float3 wo = Normalize(tlo - ori),
-           // wi = Normalize(ori - eye);
-    // import brdf;
-    // float3 col = BRDF_F ( wi, N, wo, _mat, float3(0.8f));
-    // return min(1.0f, max(0.0f, dot(wo, N)))*float3(0.68f, 0.57f, 0.689f);
+    float3 wo = Normalize(Lo - ori),
+           wi = Normalize(ori - eye);
+    float3 col = BRDF_F ( wi, N, wo, _mat, diff);
+    return col;//diff*max(0.0f, dot(wi, N));
   }
 
   VertexBufferObject vbo;
@@ -84,11 +97,14 @@ public:
     camera = _camera;
   }
   void Push_Vertex_Buffer ( VertexType type, VertexBuffer _vbo ) {
+    writeln("Pushing vertex buffer of type ", type);
     vbo.buffers[type] = _vbo;
   }
 
-  void Set_Texture ( TextureType texture_type, string filename ) {
-    diffuse_texture = new Texture(filename);
+  void Set_Texture ( TextureType type, string filename ) {
+    writeln("Pushing texture buffer of type ", type);
+    has_uv = true;
+    textures[type] = new Texture(filename);
   }
 
   void Render ( OutBuffer out_buff, RenderType type ) {
@@ -114,22 +130,33 @@ public:
     immutable Camera_bbox = cast(immutable)camera.bbox;
 
     auto sw = StopWatch(AutoStart.yes);
+    // TODO break these into multiple functions with stopwatch
 
+    // -- Model Geometry --
     foreach ( it, ref result; parallel(vary_buf) ) {
       int3 model_elem =  VBO.buffers[0].elements[it];
       foreach ( face; 0 .. 3 ) {
         auto element = model_elem[face];
-        float3 coord = VBO.buffers[0].coordinates[element];
-        if ( diffuse_texture ) { // TODO better if statement check
-          result.varying_uv[face] = VBO.buffers[1].coordinates[element];
-        }
+        float3 coord = VBO.buffers[0].coordinates[model_elem[face]];
+        result.world_tri   [face] = coord;
         result.varying_tri [face] = (Matrix*float4(coord, 1.0f)).xyz;
       }
     }
+    // -- Model UV/Texture --
+    if ( has_uv ) { // TODO better if check
+      foreach ( it, ref result; parallel(vary_buf) ) {
+        int3 uv_elem = VBO.buffers[1].elements[it];
+        foreach ( face; 0 .. 3 ) {
+          float3 coord = VBO.buffers[1].coordinates[uv_elem[face]];
+          result.varying_uv[face] = coord;
+        }
+      }
+    }
+    // -- bounding box --
     foreach ( it, ref result; parallel(vary_buf) ) {
       result.bbox = camera.bbox.Triangle(result.varying_tri);
     }
-
+    // -- camera clipping -- TODO parallelize (?)
     import stl : filter, array;
     vary_buf = vary_buf.filter!(n =>
       n.bbox.bmin.x != camera.image_dim.x && n.bbox.bmax.x != 0 &&
@@ -144,6 +171,9 @@ public:
     import std.parallelism, stl;
     auto sw = StopWatch(AutoStart.yes);
     immutable Matrix = camera.viewport*camera.projection*camera.model;
+    immutable ModelMatrix = camera.projection*camera.model;
+    immutable ubuffer = UniformBuffer(ModelMatrix,
+              ModelMatrix.inverse.transposed);
 
     immutable dim = camera.image_dim;
     immutable eye = (Matrix*float4(camera.eye, 0.0f)).xyz;
@@ -167,7 +197,7 @@ public:
               col = float3(pixel.x/dim.x, 0.5f, pixel.y/dim.y)*
                     Clamp(z+1.0f, 0.0f, 2.0f)/2.0f;
             } else static if ( CRType == RenderType.Fragment ) {
-              col = Fragment_Shader(result, eye, bary);
+              col = Fragment_Shader(ubuffer, result, eye, bary);
             }
             out_buf.Apply(To_Int2(pixel.xy), float4(col, 1.0f));
           }

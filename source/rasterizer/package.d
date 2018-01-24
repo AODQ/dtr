@@ -4,7 +4,7 @@ static import stl;
 import buffer;
 import vector;
 import wavefront;
-import stl : max;
+import stl : max, writeln;
 import rasterizer.pipeline;
 
 private GLBuffer gl_buffer;
@@ -20,10 +20,12 @@ float3 rotational_eye = float3(0.0f);
 RenderType render_type = RenderType.Depth;
 
 void Initialize ( string[] args = [] ) {
+  writeln("Initializing");
   int2 dim = int2(640, 480);
   gl_buffer = new GLBuffer(dim.x, dim.y);
   auto wavefront_obj = new WavefrontObj(args[0]);
 
+  writeln("Creating camera");
   camera = new Camera(float2(dim));
   camera.eye    = float3(0.0f,  2.0f, 3.0f);
   camera.center = float3(0.0f,  0.0f, 0.0f);
@@ -31,6 +33,7 @@ void Initialize ( string[] args = [] ) {
   camera.viewport   = camera.Viewport(0, 0, dim.x, dim.y);
   camera.model      = camera.Lookat();
 
+  writeln("Creating rasterization pipeline");
   drast = new DamnRasterizer(camera);
   drast.Push_Vertex_Buffer(VertexType.Model,
                   VertexBuffer(wavefront_obj.vertices,
@@ -40,13 +43,15 @@ void Initialize ( string[] args = [] ) {
                   VertexBuffer(wavefront_obj.uv_coords,
                                wavefront_obj.uv_faces));
   }
-  if ( wavefront_obj.diffuse_texture != "" )
-    drast.Set_Texture(TextureType.Diffuse, wavefront_obj.diffuse_texture);
+  foreach ( it, text_name; wavefront_obj.textures ) {
+    if ( text_name != "" ) drast.Set_Texture(cast(TextureType)it, text_name);
+  }
   model_dimensions = wavefront_obj.bbox.bmax - wavefront_obj.bbox.bmin;
   model_diameter   = max(model_dimensions.x, max(model_dimensions.y,
                          model_dimensions.z));
   pan_eye.y = -0.5f;
   delete wavefront_obj;
+  writeln("Rasterization pipeline complete");
 }
 
 

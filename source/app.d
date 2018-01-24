@@ -22,7 +22,7 @@ int main(string[] args) {
   string font_path = thisExePath().dirName().buildPath("DroidSans.ttf");
   Initialize(width, height, font_path);
 
-  glClearColor(0.8f, 0.8f, 0.8f, 1.0f);
+  glClearColor(0.02f, 0.02f, 0.02f, 1.0f);
   glEnable(GL_BLEND);
   glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
   glDisable(GL_DEPTH_TEST);
