@@ -12,6 +12,8 @@ import imgui;
 import glfw;
 import glfw.input : mouse;
 
+// TODO: clean this mess up
+
 auto Bool_Enable ( bool t ) {
   return t ? Enabled.yes : Enabled.no;
 }
@@ -120,7 +122,7 @@ struct GUI {
       imguiLabel("Vertices: %s".format(vertices_rendered));
 
       import rasterizer : zoom, pan_eye, rotational_eye, animate,
-                          model_dimensions, render_type;
+                          model_diameter, render_type;
       static bool animatal = true;
       if ( imguiCheck("animatal", &animatal) ) {
         rotational_eye.z = 0.0f;
@@ -160,10 +162,14 @@ struct GUI {
         zoom += mouse.motion_x*0.01f;
         zoom = fmax(0.001f, zoom);
       }
-      auto dim = model_dimensions;
-       imguiSlider("Lo.x", &DamnRasterizer.Lo.x, -dim.x*20.0f, dim.x*20.0f, 0.001f);
-       imguiSlider("Lo.y", &DamnRasterizer.Lo.y, -dim.y*20.0f, dim.y*20.0f, 0.001f);
-       imguiSlider("Lo.z", &DamnRasterizer.Lo.z, -dim.z*20.0f, dim.z*20.0f, 0.001f);
+      auto dim = model_diameter*20.0f;
+      imguiSlider("Lo.x", &DamnRasterizer.Lo.x, -dim, dim, 0.001f);
+      imguiSlider("Lo.y", &DamnRasterizer.Lo.y, -dim, dim, 0.001f);
+      imguiSlider("Lo.z", &DamnRasterizer.Lo.z, -dim, dim, 0.001f);
+
+      imguiSlider("Lemit.x", &DamnRasterizer.Lemit.x, 0.0f, 1.0f, 0.001f);
+      imguiSlider("Lemit.y", &DamnRasterizer.Lemit.y, 0.0f, 1.0f, 0.001f);
+      imguiSlider("Lemit.z", &DamnRasterizer.Lemit.z, 0.0f, 1.0f, 0.001f);
 
       imguiSeparatorLine();
       imguiSeparator();
@@ -197,9 +203,9 @@ struct GUI {
 
       imguiSeparator();
 
-      static import settings;
-      imguiCheck("Diffuse texture", &settings.render_textures[TextureType.Diffuse]);
-      imguiCheck("Normal  texture", &settings.render_textures[TextureType.Normal]);
+      import settings : global_settings;
+      imguiCheck("Diffuse texture", &global_settings.render_textures[TextureType.Diffuse]);
+      imguiCheck("Normal  texture", &global_settings.render_textures[TextureType.Normal]);
 
       imguiEndScrollArea();
     }

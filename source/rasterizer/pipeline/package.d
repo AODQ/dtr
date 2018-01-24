@@ -7,7 +7,7 @@ import std.datetime.stopwatch : StopWatch, AutoStart;
 import std.datetime : Duration;
 import brdf : BRDF_F, Material;
 import rasterizer.pipeline.texture;
-static import settings;
+import settings;
 
 Duration vertex_shader_time,
          fragment_shader_time;
@@ -49,14 +49,19 @@ class DamnRasterizer {
     roughness:0.5f, metallic:0.5f, fresnel:0.5f, subsurface:0.5f,
     anisotropic:0.5f
   };
-  static float3 Lo = float3(-0.27f, -0.43f, -0.19f);
+  static float3 Lo = float3(-0.27f, -0.43f, -0.19f),
+                Lemit = float3(1.0f);
   Camera camera;
   Texture[TextureType_max] textures;
   bool has_uv;
 private:
 
   struct UniformBuffer {
-    float4x4 Matrix, MatrixInverse;
+    immutable float4x4 Matrix, MatrixInverse;
+    immutable Texture[TextureType_max] textures;
+    immutable Settings settings;
+    immutable float3 Lo, Lemit;
+    immutable Material mat;
   }
 
   struct VaryingBuffer {
@@ -67,27 +72,28 @@ private:
   }
 
 
-  float3 Fragment_Shader ( inout ref UniformBuffer ub,
+  float3 Fragment_Shader ( immutable ref UniformBuffer ub,
                            inout ref VaryingBuffer vb, float3 eye, float3 bary){
     import stl : max, min, fabs;
     float2 uv = Matrix_Mul(vb.varying_uv, bary).xy;
     float3 ori = Matrix_Mul(vb.world_tri, bary);
     float3 N;
-    if ( settings.render_textures[TextureType.Normal] &&
-         textures[TextureType.Normal] !is null ) {
-      N = textures[TextureType.Normal].Read(uv).xyz;
+    if ( ub.settings.render_textures[TextureType.Normal] &&
+         ub.textures[TextureType.Normal] !is null ) {
+      N = ub.textures[TextureType.Normal].Read(uv).xyz.Normalize;
+      // N = (ub.MatrixInverse*float4(N, 0.0f)).xyz.Normalize;
     } else
       N = cross(vb.world_tri[2] - vb.world_tri[0],
                 vb.world_tri[1] - vb.world_tri[0]).Normalize;
     float3 diff = float3(0.5f);
-    if ( settings.render_textures[TextureType.Diffuse] &&
-         textures[TextureType.Diffuse] !is null ) {
-      diff = textures[TextureType.Diffuse].Read(uv).xyz;
+    if ( ub.settings.render_textures[TextureType.Diffuse] &&
+         ub.textures[TextureType.Diffuse] !is null ) {
+      diff = ub.textures[TextureType.Diffuse].Read(uv).xyz;
     }
-    float3 wo = Normalize(Lo - ori),
+    float3 wo = Normalize(ub.Lo - ori),
            wi = Normalize(ori - eye);
-    float3 col = BRDF_F ( wi, N, wo, _mat, diff);
-    return col;//diff*max(0.0f, dot(wi, N));
+    float3 col = BRDF_F ( wi, N, wo, ub.mat, diff);
+    return col*ub.Lemit;//diff*max(0.0f, dot(wi, N));
   }
 
   VertexBufferObject vbo;
@@ -172,8 +178,17 @@ public:
     auto sw = StopWatch(AutoStart.yes);
     immutable Matrix = camera.viewport*camera.projection*camera.model;
     immutable ModelMatrix = camera.projection*camera.model;
-    immutable ubuffer = UniformBuffer(ModelMatrix,
-              ModelMatrix.inverse.transposed);
+    // TODO: move all this stuff up the pipeline, throw out Lo and _mat
+    //           to settings. Better yet, seperate the pipeline from
+    //           DamnRasterizer class
+    immutable ubuffer = cast(immutable)UniformBuffer(
+              cast(immutable)ModelMatrix,
+              cast(immutable)ModelMatrix.inverse.transposed,
+              cast(immutable)textures,
+              cast(immutable)global_settings,
+              cast(immutable)Lo,
+              cast(immutable)Lemit,
+              cast(immutable)_mat);
 
     immutable dim = camera.image_dim;
     immutable eye = (Matrix*float4(camera.eye, 0.0f)).xyz;
@@ -213,7 +228,7 @@ public:
     import std.parallelism;
     immutable dim = To_Int2(camera.image_dim.x, camera.image_dim.y);
     auto sw = StopWatch(AutoStart.yes);
-    foreach ( it, ref result; parallel(vary_buf) ) {
+    foreach ( it, ref result; parallel(vary_buf) )   {
       foreach ( v; 0 .. 3 ) {
         Render_Line(buf, dim, result.varying_tri[v].xy,
                               result.varying_tri[(v+1)%3].xy);
